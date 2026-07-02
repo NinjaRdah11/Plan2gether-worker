@@ -274,6 +274,14 @@ function pemToDer(pem) {
   const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
   return base64UrlDecode(b64);
 }
+function pemToDerPrivate(pem) {
+  const b64 = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/\s/g, '');
+  const binary = atob(b64);
+  return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
 function base64UrlDecode(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
@@ -300,8 +308,11 @@ async function getFirebaseAccessToken(env) {
   const b64Payload = btoa(JSON.stringify(payload)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
   const unsigned   = `${b64Header}.${b64Payload}`;
 
-  // Import RSA private key
-  const pkcs8 = pemToDer(env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'));
+  // Import RSA private key — handle both escaped \n and real newlines
+  const rawKey = env.FIREBASE_PRIVATE_KEY
+    .replace(/\\n/g, '\n')   // convert escaped \n to real newlines
+    .replace(/\r/g, '');     // strip carriage returns
+  const pkcs8 = pemToDerPrivate(rawKey);
   const key = await crypto.subtle.importKey('pkcs8', pkcs8, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
   const b64Sig = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
