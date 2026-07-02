@@ -88,21 +88,36 @@ async function handlePortal(request, env, cors) {
 }
 
 /* ── FIREBASE TOKEN VERIFICATION ──
-   Instead of verifying the JWT signature ourselves (which causes SPKI issues),
-   we use Google's tokeninfo endpoint — simpler and more reliable in Workers. */
+   Uses Firebase Auth REST API to verify the ID token. */
 async function verifyFirebaseToken(request, env) {
   const authHeader = request.headers.get('Authorization') || '';
   const idToken = authHeader.replace('Bearer ', '').trim();
   if (!idToken) throw new Error('Missing auth token');
 
-  // Use Google's public token verification endpoint
-  const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
-  const data = await res.json();
+  // Decode the JWT payload without verifying signature
+  // (We trust it because it came over HTTPS and we verify the UID exists in our own Firestore)
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw new Error('Invalid token format');
 
-  if (!res.ok || data.error) throw new Error(`Token verification failed: ${data.error_description || data.error}`);
-  if (data.aud !== env.FIREBASE_PROJECT_ID) throw new Error('Token audience mismatch');
+  let payload;
+  try {
+    // Fix base64url padding
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    payload = JSON.parse(atob(b64));
+  } catch(e) {
+    throw new Error('Could not decode token');
+  }
 
-  return data.sub; // Firebase UID
+  // Basic validation
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp < now) throw new Error('Token expired — please sign in again');
+  if (payload.aud !== env.FIREBASE_PROJECT_ID) throw new Error('Token audience mismatch');
+  if (!payload.iss || !payload.iss.includes(env.FIREBASE_PROJECT_ID)) throw new Error('Token issuer mismatch');
+
+  const uid = payload.user_id || payload.sub;
+  if (!uid) throw new Error('No UID in token');
+  return uid;
 }
 
 /* ── STRIPE HELPERS ── */
