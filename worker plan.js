@@ -36,16 +36,26 @@ async function handleCreateCheckout(request, env, cors) {
   const uid = await verifyFirebaseToken(request, env);
   const { priceId, returnUrl } = await request.json();
   const customerId = await getOrCreateStripeCustomer(uid, env);
+
+  // Check if this customer already used a trial before
+  const existingSubs = await stripeGet(`/v1/subscriptions?customer=${customerId}&status=all&limit=10`, env);
+  const usedTrial = existingSubs.data && existingSubs.data.some(s => s.trial_start !== null);
+
   const params = new URLSearchParams({
     mode: 'subscription',
     customer: customerId,
     'line_items[0][price]': priceId,
     'line_items[0][quantity]': '1',
-    'subscription_data[trial_period_days]': '30',
     success_url: returnUrl,
-    cancel_url:  returnUrl,  // both go back to the app
+    cancel_url:  returnUrl,
     allow_promotion_codes: 'true',
   });
+
+  // Only give trial if they've never had one
+  if(!usedTrial){
+    params.append('subscription_data[trial_period_days]', '30');
+  }
+
   const session = await stripePost('/v1/checkout/sessions', params, env);
   return jsonResp({ url: session.url }, 200, cors);
 }
