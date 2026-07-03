@@ -43,7 +43,7 @@ async function handleCreateCheckout(request, env, cors) {
     'line_items[0][quantity]': '1',
     'subscription_data[trial_period_days]': '30',
     success_url: returnUrl,
-    cancel_url:  returnUrl,
+    cancel_url:  returnUrl,  // both go back to the app
     allow_promotion_codes: 'true',
   });
   const session = await stripePost('/v1/checkout/sessions', params, env);
@@ -80,9 +80,10 @@ async function handlePortal(request, env, cors) {
   const uid = await verifyFirebaseToken(request, env);
   const customerId = await getOrCreateStripeCustomer(uid, env);
   const body = await request.json().catch(() => ({}));
+  const returnUrl = body.returnUrl || 'https://ninjardah11.github.io/Plan2gether-2.0';
   const session = await stripePost('/v1/billing_portal/sessions', new URLSearchParams({
     customer:   customerId,
-    return_url: body.returnUrl || 'https://plan2gether.app',
+    return_url: returnUrl,
   }), env);
   return jsonResp({ url: session.url }, 200, cors);
 }
